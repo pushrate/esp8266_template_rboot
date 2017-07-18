@@ -42,14 +42,19 @@ TARGET = example
 ## This makefile just assumes all .c and .s files in the MODULES directories are code that
 ## should be compiled into the final binary
 # which modules (subdirectories) of the project to include in compiling
-MODULES = app
+MODULES = app rboot
 
 # allow some configuration headers to live at the repo root, as it is much easier to find them there
 EXTRA_INCDIR = .
 
 ## this is all of the libs present in the espressif SDK except lwip_536
 # libraries used in this project, mainly provided by the SDK
-LIBS = c hal airkiss at crypto driver espnow gcc json lwip main mesh net80211 phy pp pwm smartconfig ssl upgrade wpa2 wpa wps
+
+#https://github.com/raburton/rboot
+# go to esp library folder, and weaken symbol as follows, creating main2 library
+# xtensa-lx106-elf-objcopy -W Cache_Read_Enable_New libmain.a libmain_rboot.a
+
+LIBS = c hal airkiss at crypto driver espnow gcc json lwip main_rboot mesh net80211 phy pp pwm smartconfig ssl upgrade wpa2 wpa wps
 
 # compiler flags using during compilation of source files
 #http://www.esp8266.com/viewtopic.php?t=231&p=1139
@@ -57,7 +62,7 @@ CFLAGS = -Wpointer-arith -Wundef -Werror -Wl,-EL -fno-inline-functions -nostdlib
 -mlongcalls -mtext-section-literals  -D__ets__ -DICACHE_FLASH
 
 ## from linker docs: -u symbol: force symbol to be entered in the output file as an undefined symbol.
-LDFLAGS = -nostdlib -Wl,--no-check-sections -Wl,--gc-sections -u call_user_start -Wl,-static
+LDFLAGS = -nostdlib -Wl,--no-check-sections -Wl,--gc-sections -u call_user_start -u Cache_Read_Enable_New -Wl,-static
 
 ## There is some interesting voodoo that I don't yet completely understand with the ld file, you can add a symbol pattern there
 ## to force the linker to put all matching objects in irom (flash). Instead, I use the GDBFN define to set all the gdbstub functions
@@ -90,8 +95,7 @@ SDK_INCDIR = include include/json driver_lib/include
 ## time by the builtin firmware, basically initializing iram, etc. 0x10000 is the irom, exactly as it
 ## will exist at 0x40210000.
 # We create two different files for uploading into the flash.
-FW_FILE_1_ADDR = 0x00000
-FW_FILE_2_ADDR = 0x10000
+FW_FILE_1_ADDR = 0x02000
 
 # select which tools to use as compiler, librarian and linker
 CC := xtensa-lx106-elf-gcc
@@ -120,7 +124,7 @@ APP_AR := $(addprefix $(BUILD_BASE)/,$(TARGET)_app.a)
 TARGET_OUT := $(addprefix $(BUILD_BASE)/,$(TARGET).out)
 
 # Again, turn the ld script into a linker flag
-LD_SCRIPT := $(addprefix -T$(SDK_BASE)/$(SDK_LDDIR)/,$(LD_SCRIPT))
+LD_SCRIPT := $(addprefix -T$,$(LD_SCRIPT))
 
 # Generate include flags (module, module/include, and *EXTRA_INCDIR*)
 INCDIR := $(addprefix -I,$(SRC_DIR))
@@ -128,7 +132,6 @@ EXTRA_INCDIR := $(addprefix -I,$(EXTRA_INCDIR))
 MODULE_INCDIR := $(addsuffix /include,$(INCDIR))
 
 FW_FILE_1 := $(addprefix $(FW_BASE)/,$(FW_FILE_1_ADDR).bin)
-FW_FILE_2 := $(addprefix $(FW_BASE)/,$(FW_FILE_2_ADDR).bin)
 
 ## Simple helper function that if in verbose mode provides extra information
 V ?= $(VERBOSE)
@@ -157,24 +160,23 @@ endef
 
 ## .PHONY target is something I need to look up every time: basically it serves to tell Make that
 ## these targets aren't associated with an actual filesystem file
-.PHONY: all checkdirs flash clean
+.PHONY: all checkdirs flash1 flash2 flash3 clean
 
-all: checkdirs $(TARGET_OUT) $(FW_FILE_1) $(FW_FILE_2)
+all: checkdirs $(TARGET_OUT) $(FW_FILE_1)
 
 ## This was a bit of an oddity: if observing with just-print it will appeart to be run twice, but in practice it is only
 ## run once (I think). The rule would be matched for each of the firmware files, but the first invocation will generate both.
 # esptool splits the elf file (example.out) into the two firmware files.
 $(FW_BASE)/%.bin: $(TARGET_OUT) | $(FW_BASE)
 	$(vecho) "FW $(FW_BASE)/"
-	$(Q) $(ESPTOOL) elf2image -o $(FW_BASE)/ $(TARGET_OUT)
-
+	$(Q) $(ESPTOOL) elf2image --version=2 --checksum-irom $(TARGET_OUT) -o ./firmware/$(FW_FILE_1_ADDR).bin
 
 ## Call the linker: start-group end-group tells the linker to iterate through this set of libraries multiple time to resolve
 ## references. Otherwise it would only go through once, and items at the start of the list couldn't rely on
 ## those at the end
 $(TARGET_OUT): $(APP_AR)
 	$(vecho) "LD $@"
-	$(Q) $(LD) -L$(SDK_LIBDIR) $(LD_SCRIPT) $(LDFLAGS) -Wl,--start-group $(LIBS) $(APP_AR) -Wl,--end-group -o $@
+	$(Q) $(LD) -L$(SDK_LIBDIR) $(LD_SCRIPT) $(LDFLAGS) -Wl,--start-group $(APP_AR) $(LIBS) -Wl,--end-group -o $@
 
 $(APP_AR): $(OBJ)
 	$(vecho) "AR $@"
@@ -191,8 +193,14 @@ $(FW_BASE):
 debug: checkdirs $(TARGET_OUT) $(FW_FILE_1) $(FW_FILE_2)
 
 ## TODO: There is probably some utility in wiping/initializing memory areas that aren't program related (stored settings, etc)
-flash: $(FW_FILE_1) $(FW_FILE_2)
-	$(ESPTOOL) --port $(ESPPORT) write_flash $(FLASH_FLAGS) $(FW_FILE_1_ADDR) $(FW_FILE_1) $(FW_FILE_2_ADDR) $(FW_FILE_2)
+flash1: $(FW_FILE_1)
+	$(ESPTOOL) --port $(ESPPORT) write_flash $(FLASH_FLAGS) $(FW_FILE_1_ADDR) $(FW_FILE_1)
+
+flash2: $(FW_FILE_1)
+	$(ESPTOOL) --port $(ESPPORT) write_flash $(FLASH_FLAGS) 0x102000 $(FW_FILE_1)
+
+flash3: $(FW_FILE_1)
+	$(ESPTOOL) --port $(ESPPORT) write_flash $(FLASH_FLAGS) 0x202000 $(FW_FILE_1)
 
 clean:
 	$(Q) rm -rf $(FW_BASE) $(BUILD_BASE)
