@@ -124,7 +124,7 @@ APP_AR := $(addprefix $(BUILD_BASE)/,$(TARGET)_app.a)
 TARGET_OUT := $(addprefix $(BUILD_BASE)/,$(TARGET).out)
 
 # Again, turn the ld script into a linker flag
-LD_SCRIPT := $(addprefix -T$,$(LD_SCRIPT))
+LD_SCRIPT := $(addprefix -T,$(LD_SCRIPT))
 
 # Generate include flags (module, module/include, and *EXTRA_INCDIR*)
 INCDIR := $(addprefix -I,$(SRC_DIR))
@@ -160,7 +160,7 @@ endef
 
 ## .PHONY target is something I need to look up every time: basically it serves to tell Make that
 ## these targets aren't associated with an actual filesystem file
-.PHONY: all checkdirs flash1 flash2 flash3 clean
+.PHONY: all checkdirs flash0 flash1 flash2 clean
 
 all: checkdirs $(TARGET_OUT) $(FW_FILE_1)
 
@@ -193,13 +193,13 @@ $(FW_BASE):
 debug: checkdirs $(TARGET_OUT) $(FW_FILE_1) $(FW_FILE_2)
 
 ## TODO: There is probably some utility in wiping/initializing memory areas that aren't program related (stored settings, etc)
-flash1: $(FW_FILE_1)
+flash0: $(FW_FILE_1)
 	$(ESPTOOL) --port $(ESPPORT) write_flash $(FLASH_FLAGS) $(FW_FILE_1_ADDR) $(FW_FILE_1)
 
-flash2: $(FW_FILE_1)
+flash1: $(FW_FILE_1)
 	$(ESPTOOL) --port $(ESPPORT) write_flash $(FLASH_FLAGS) 0x102000 $(FW_FILE_1)
 
-flash3: $(FW_FILE_1)
+flash2: $(FW_FILE_1)
 	$(ESPTOOL) --port $(ESPPORT) write_flash $(FLASH_FLAGS) 0x202000 $(FW_FILE_1)
 
 clean:

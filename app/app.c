@@ -9,22 +9,23 @@
 #include "gdbstub.h"
 #endif
 
-//Init function 
+//Init function
 void ICACHE_FLASH_ATTR
 user_init()
 {
-  uart_init(115200, 115200); 
+  uart_init(115200, 115200);
+  UART_SetPrintPort(0);
 
 #ifdef DEBUG
   gdbstub_init();
 #endif
-    
+
   os_printf("Hi this is working\n");
 
   #ifdef DEBUG
   // insert breakpoint programmatically
   gdbstub_do_break();
   #endif
-  
+
   os_printf("Just hit the end\n");
 }
